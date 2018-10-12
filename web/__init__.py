@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 """web.py: makes web apps (http://webpy.org)"""
 
-from __future__ import generators
-
-__version__ = "0.40-dev1"
+__version__ = "0.01-dev1"
 __author__ = [
     "Aaron Swartz <me@aaronsw.com>",
     "Anand Chitipothu <anandology@gmail.com>"
@@ -30,4 +28,3 @@ try:
     from . import webopenid as openid
 except ImportError:
     pass # requires openid module
-
