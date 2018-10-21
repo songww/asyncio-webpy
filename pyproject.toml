@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "web"
+version = "0.0.1-dev1"
+description = "An async webframework for Python with the same API as web.py."
+authors = ["songww <sww4718168@gmail.com>"]
+license = "MIT"
+
+readme = 'README.md'
+
+repository = "https://github.com/songww/asyncio-webpy"
+homepage = "https://github.com/songww/asyncio-webpy"
+
+keywords = ["asyncio", "microframework"]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+async-timeout = "^3.0.0"
+
+[tool.poetry.dev-dependencies]
+flake8 = "^3.5"
+black = "^18.3-alpha.0"
+jedi = "^0.13.1"
+mypy = "^0.630"
+flake8-isort = "^2.5"
+flake8-mypy = "^17.8"
+
+[tool.black]
+line-length = 119

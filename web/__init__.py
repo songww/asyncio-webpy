@@ -1,13 +1,12 @@
 #!/usr/bin/env python
-"""web.py: makes web apps (http://webpy.org)"""
+"""asyncio-webpy: makes web apps (http://asyncio-webpy.imop.io)"""
 
 __version__ = "0.01-dev1"
 __author__ = [
-    "Aaron Swartz <me@aaronsw.com>",
-    "Anand Chitipothu <anandology@gmail.com>"
+    "songww <songww@gmail.com>",
 ]
-__license__ = "public domain"
-__contributors__ = "see http://webpy.org/changes"
+__license__ = "MIT"
+__contributors__ = "see http://asyncio-webpy.imop.io/changes"
 
 from . import utils, db, net, wsgi, http, webapi, httpserver, debugerror
 from . import template, form
