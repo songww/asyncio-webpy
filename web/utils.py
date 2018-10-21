@@ -56,10 +56,8 @@ __all__ = [
 ]
 
 import asyncio
-import collections.abc
 import contextvars
 import datetime
-import itertools
 import os
 import re
 import subprocess
@@ -69,9 +67,9 @@ import time
 import traceback
 from io import StringIO
 
-from async_timeout import timeout
+from async_timeout import timeout as _timeout_ctx
 
-from .py3helpers import is_iter, iteritems, itervalues, string_types, text_type
+from .py3helpers import is_iter, iteritems, itervalues, text_type
 
 
 class Storage(dict):
@@ -433,7 +431,7 @@ def timelimit(timeout):
                 def run(self):
                     try:
                         self.result = function(*args, **kw)
-                    except:
+                    except Exception:
                         self.error = sys.exc_info()
 
             c = Dispatch()
@@ -791,7 +789,7 @@ def safeiter(it, cleanup=None, ignore_errors=True):
                 return next(it)
             except StopIteration:
                 raise
-            except:
+            except Exception:
                 traceback.print_exc()
 
     it = iter(it)
@@ -803,7 +801,7 @@ def safewrite(filename, content):
     """Writes the content to a temp file and then moves the temp file to
     given filename to avoid overwriting the existing file in case of errors.
     """
-    f = file(filename + ".tmp", "w")
+    f = open(filename + ".tmp", "w")
     f.write(content)
     f.close()
     os.rename(f.name, filename)
@@ -1212,8 +1210,11 @@ class Profile:
     def __init__(self, func):
         self.func = func
 
-    def __call__(self, *args):  ##, **kw):   kw unused
-        import cProfile, pstats, os, tempfile  ##, time already imported
+    def __call__(self, *args):
+        import cProfile
+        import pstats
+        import os
+        import tempfile
 
         f, filename = tempfile.mkstemp()
         os.close(f)
@@ -1279,7 +1280,7 @@ def tryall(context, prefix=None):
             r = value()
             dictincr(results, r)
             print(r)
-        except:
+        except Exception:
             print("ERROR")
             dictincr(results, "ERROR")
             print("   " + "\n   ".join(traceback.format_exc().split("\n")))
@@ -1387,7 +1388,7 @@ def sendmail(from_address, to_address, subject, message, headers=None, **kw):
             filename = os.path.basename(getattr(a, "name", ""))
             content_type = getattr(a, "content_type", None)
             mail.attach(filename, a.read(), content_type)
-        elif isinstance(a, basestring):
+        elif isinstance(a, (bytes, str)):
             f = open(a, "rb")
             content = f.read()
             f.close()
@@ -1450,7 +1451,7 @@ class _EmailMessage:
 
         try:
             from email import encoders
-        except:
+        except ImportError:
             from email import Encoders as encoders
 
         content_type = content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
@@ -1619,7 +1620,7 @@ class Context(object):
 
     @classmethod
     def clear_all(cls):
-        _ = [ins.clear() for ins in cls._instances]
+        [ins.clear() for ins in cls._instances]
         cls._instances.clear()
 
 

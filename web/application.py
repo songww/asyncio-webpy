@@ -8,20 +8,17 @@ import itertools
 import os
 import sys
 import traceback
-import types
-import urllib
-import wsgiref.handlers
 from importlib import reload
 from inspect import isclass
 from io import BytesIO
-from urllib.parse import quote, splitquery, unquote, urlencode
+from urllib.parse import splitquery, unquote, urlencode
 
 from . import browser, httpserver, utils
 from . import webapi as web
 from . import wsgi
 from .debugerror import debugerror
-from .py3helpers import is_iter, iteritems, string_types, text_type
-from .utils import lstrips
+from .py3helpers import is_iter, string_types
+from .utils import safebytes
 
 __all__ = [
     "application",
@@ -116,8 +113,7 @@ class application:
     def _cleanup(self):
         # Threads can be recycled by WSGI servers.
         # Clearing up all thread-local state to avoid interefereing with subsequent requests.
-        # utils.ThreadedDict.clear_all()
-        pass
+        utils.Context.clear_all()
 
     def init_mapping(self, mapping):
         self.mapping = list(utils.group(mapping, 2))
@@ -259,65 +255,102 @@ class application:
         # processors must be applied in the resvere order. (??)
         return process(self.processors)
 
-    def wsgifunc(self, *middleware):
-        """Returns a WSGI-compatible function for this application."""
+    # def wsgifunc(self, *middleware):
+    #     """Returns a WSGI-compatible function for this application."""
 
-        def peep(iterator):
-            """Peeps into an iterator by doing an iteration
-            and returns an equivalent iterator.
-            """
-            # wsgi requires the headers first
-            # so we need to do an iteration
-            # and save the result for later
-            try:
-                firstchunk = next(iterator)
-            except StopIteration:
-                firstchunk = ""
+    #     def peep(iterator):
+    #         """Peeps into an iterator by doing an iteration
+    #         and returns an equivalent iterator.
+    #         """
+    #         # wsgi requires the headers first
+    #         # so we need to do an iteration
+    #         # and save the result for later
+    #         try:
+    #             firstchunk = next(iterator)
+    #         except StopIteration:
+    #             firstchunk = ""
 
-            return itertools.chain([firstchunk], iterator)
+    #         return itertools.chain([firstchunk], iterator)
 
-        def wsgi(env, start_resp):
-            # clear threadlocal to avoid inteference of previous requests
-            self._cleanup()
+    #     def wsgi(env, start_resp):
+    #         # clear threadlocal to avoid inteference of previous requests
+    #         self._cleanup()
 
-            self.load(env)
-            try:
-                # allow uppercase methods only
-                if web.ctx.method.upper() != web.ctx.method:
-                    raise web.nomethod()
+    #         self.load(env)
+    #         try:
+    #             # allow uppercase methods only
+    #             if web.ctx.method.upper() != web.ctx.method:
+    #                 raise web.nomethod()
 
-                result = self.handle_with_processors()
+    #             result = self.handle_with_processors()
+    #             if is_iter(result):
+    #                 result = peep(result)
+    #             else:
+    #                 result = [result]
+    #         except web.HTTPError as e:
+    #             result = [e.data]
+
+    #         def build_result(result):
+    #             for r in result:
+    #                 if isinstance(r, bytes):
+    #                     yield r
+    #                 elif isinstance(r, string_types):
+    #                     yield r.encode("utf-8")
+    #                 else:
+    #                     yield str(r).encode("utf-8")
+
+    #         result = build_result(result)
+
+    #         status, headers = web.ctx.status, web.ctx.headers
+    #         start_resp(status, headers)
+
+    #         def cleanup():
+    #             self._cleanup()
+    #             yield b""  # force this function to be a generator
+
+    #         return itertools.chain(result, cleanup())
+
+    #     for m in middleware:
+    #         wsgi = m(wsgi)
+
+    #     return wsgi
+
+    def asgifunc(self, *middleware):
+        """Return a ASGI-compatibal function for this application."""
+
+        def asgi(scope):
+            self.load(scope)
+
+            async def _(receive, send):
+                body = b""
+                more_body = True
+                while more_body:
+                    message = await receive()
+                    if message["type"] == "http.request":
+                        body += message["body"]
+                        more_body = message["more_body"]
+
+                try:
+                    if web.ctx.method.upper() != web.ctx.method:
+                        raise web.nomethod()
+                    result = self.handle_with_processors()
+
+                except web.HTTPError as e:
+                    result = e.data
+
+                await send({"type": "http.response.start", "status": web.ctx.status, "headers": web.ctx.headers})
                 if is_iter(result):
-                    result = peep(result)
+                    for chunck in result:
+                        await send({"type": "http.response.body", "body": safebytes(chunck), "more_body": True})
+                    await send({"type": "http.response.body", "body": b"", "more_body": False})
                 else:
-                    result = [result]
-            except web.HTTPError as e:
-                result = [e.data]
+                    await send({"type": "http.response.body", "body": safebytes(result), "more_body": False})
 
-            def build_result(result):
-                for r in result:
-                    if isinstance(r, bytes):
-                        yield r
-                    elif isinstance(r, string_types):
-                        yield r.encode("utf-8")
-                    else:
-                        yield str(r).encode("utf-8")
-
-            result = build_result(result)
-
-            status, headers = web.ctx.status, web.ctx.headers
-            start_resp(status, headers)
-
-            def cleanup():
-                self._cleanup()
-                yield b""  # force this function to be a generator
-
-            return itertools.chain(result, cleanup())
+            return _
 
         for m in middleware:
-            wsgi = m(wsgi)
-
-        return wsgi
+            asgi = m(asgi)
+        return asgi
 
     def run(self, *middleware):
         """
@@ -338,102 +371,68 @@ class application:
             httpserver.server.stop()
             httpserver.server = None
 
-    def cgirun(self, *middleware):
-        """
-        Return a CGI handler. This is mostly useful with Google App Engine.
-        There you can just do:
-
-            main = app.cgirun()
-        """
-        wsgiapp = self.wsgifunc(*middleware)
-
-        try:
-            from google.appengine.ext.webapp.util import run_wsgi_app
-
-            return run_wsgi_app(wsgiapp)
-        except ImportError:
-            # we're not running from within Google App Engine
-            return wsgiref.handlers.CGIHandler().run(wsgiapp)
-
-    def gaerun(self, *middleware):
-        """
-        Starts the program in a way that will work with Google app engine,
-        no matter which version you are using (2.5 / 2.7)
-
-        If it is 2.5, just normally start it with app.gaerun()
-
-        If it is 2.7, make sure to change the app.yaml handler to point to the
-        global variable that contains the result of app.gaerun()
-
-        For example:
-
-        in app.yaml (where code.py is where the main code is located)
-
-            handlers:
-            - url: /.*
-              script: code.app
-
-        Make sure that the app variable is globally accessible
-        """
-        wsgiapp = self.wsgifunc(*middleware)
-        try:
-            # check what version of python is running
-            version = sys.version_info[:2]
-            major = version[0]
-            minor = version[1]
-
-            if major != 2:
-                raise EnvironmentError("Google App Engine only supports python 2.5 and 2.7")
-
-            # if 2.7, return a function that can be run by gae
-            if minor == 7:
-                return wsgiapp
-            # if 2.5, use run_wsgi_app
-            elif minor == 5:
-                from google.appengine.ext.webapp.util import run_wsgi_app
-
-                return run_wsgi_app(wsgiapp)
-            else:
-                raise EnvironmentError("Not a supported platform, use python 2.5 or 2.7")
-        except ImportError:
-            return wsgiref.handlers.CGIHandler().run(wsgiapp)
-
-    def load(self, env):
-        """Initializes ctx using env."""
+    def load(self, scope):
+        """Initializes ctx using scope."""
         ctx = web.ctx
         ctx.clear()
-        ctx.status = "200 OK"
+
+        ctx.status = 200
+
         ctx.headers = []
         ctx.output = ""
-        ctx.environ = ctx.env = env
-        ctx.host = env.get("HTTP_HOST")
+        # ctx.environ = ctx.env = env
+        ctx.scope = scope
 
-        if env.get("wsgi.url_scheme") in ["http", "https"]:
-            ctx.protocol = env["wsgi.url_scheme"]
-        elif env.get("HTTPS", "").lower() in ["on", "true", "1"]:
+        # ctx.host = env.get("HTTP_HOST")
+        try:
+            host, port = scope["server"]
+        except Exception:
+            host = "localhost"
+            port = 80
+        ctx.server = f"{host}:{port}"
+        ctx.host = host
+        ctx.port = port
+
+        if scope.get("HTTPS", "").lower() in ["on", "true", "1"]:
             ctx.protocol = "https"
         else:
-            ctx.protocol = "http"
-        ctx.homedomain = ctx.protocol + "://" + env.get("HTTP_HOST", "[unknown]")
-        ctx.homepath = os.environ.get("REAL_SCRIPT_NAME", env.get("SCRIPT_NAME", ""))
+            ctx.protocol = scope["scheme"]
+        # if env.get("wsgi.url_scheme") in ["http", "https"]:
+        #     ctx.protocol = env["wsgi.url_scheme"]
+        # elif env.get("HTTPS", "").lower() in ["on", "true", "1"]:
+        #     ctx.protocol = "https"
+        # else:
+        #     ctx.protocol = "http"
+        ctx.homedomain = f"{ctx.protocol}://{host}:{port}"
+        ctx.homepath = scope["root_path"]
         ctx.home = ctx.homedomain + ctx.homepath
         # @@ home is changed when the request is handled to a sub-application.
         # @@ but the real home is required for doing absolute redirects.
         ctx.realhome = ctx.home
-        ctx.ip = env.get("REMOTE_ADDR")
-        ctx.method = env.get("REQUEST_METHOD")
-        ctx.path = env.get("PATH_INFO")
-        # http://trac.lighttpd.net/trac/ticket/406 requires:
-        if env.get("SERVER_SOFTWARE", "").startswith("lighttpd/"):
-            ctx.path = lstrips(env.get("REQUEST_URI").split("?")[0], ctx.homepath)
-            # Apache and CherryPy webservers unquote the url but lighttpd doesn't.
-            # unquote explicitly for lighttpd to make ctx.path uniform across all servers.
-            ctx.path = unquote(ctx.path)
+        # ctx.ip = env.get("REMOTE_ADDR")
+        # ctx.method = env.get("REQUEST_METHOD")
+        # ctx.path = env.get("PATH_INFO")
+        try:
+            remote_addr, remote_port = scope["client"]
+        except Exception:
+            remote_addr = ""
+            # remote_port = 0
+        ctx.ip = remote_addr
+        ctx.method = scope["method"]
+        ctx.path = unquote(scope["path"])
 
-        if env.get("QUERY_STRING"):
-            ctx.query = "?" + env.get("QUERY_STRING", "")
-        else:
-            ctx.query = ""
+        # http://trac.lighttpd.net/trac/ticket/406 requires:
+        # if env.get("SERVER_SOFTWARE", "").startswith("lighttpd/"):
+        #     ctx.path = lstrips(env.get("REQUEST_URI").split("?")[0], ctx.homepath)
+        #     # Apache and CherryPy webservers unquote the url but lighttpd doesn't.
+        #     # unquote explicitly for lighttpd to make ctx.path uniform across all servers.
+        #     ctx.path = unquote(ctx.path)
+
+        # if env.get("QUERY_STRING"):
+        #     ctx.query = "?" + env.get("QUERY_STRING", "")
+        # else:
+        #     ctx.query = ""
+        ctx.query = "?" + scope["query_string"].decode("utf8")
 
         ctx.fullpath = ctx.path + ctx.query
 
@@ -444,7 +443,8 @@ class application:
                 ctx[k] = v.decode("utf-8", "replace")
 
         # status must always be str
-        ctx.status = "200 OK"
+        # ctx.status = "200 OK"
+        ctx.status = 200
 
         ctx.app_stack = []
 
@@ -479,7 +479,7 @@ class application:
             else:
                 cls = fvars[f]
             return handle_class(cls)
-        elif hasattr(f, "__call__"):
+        elif callable(f):
             return f()
         else:
             return web.notfound()
