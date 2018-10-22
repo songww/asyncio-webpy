@@ -232,18 +232,18 @@ class application:
     def browser(self):
         return browser.AppBrowser(self)
 
-    def handle(self):
+    async def handle(self):
         fn, args = self._match(self.mapping, web.ctx.path)
-        return self._delegate(fn, self.fvars, args)
+        return await self._delegate(fn, self.fvars, args)
 
-    def handle_with_processors(self):
-        def process(processors):
+    async def handle_with_processors(self):
+        async def process(processors):
             try:
                 if processors:
                     p, processors = processors[0], processors[1:]
-                    return p(lambda: process(processors))
+                    return await p(lambda: process(processors))
                 else:
-                    return self.handle()
+                    return await self.handle()
             except web.HTTPError:
                 raise
             except (KeyboardInterrupt, SystemExit):
@@ -253,67 +253,7 @@ class application:
                 raise self.internalerror()
 
         # processors must be applied in the resvere order. (??)
-        return process(self.processors)
-
-    # def wsgifunc(self, *middleware):
-    #     """Returns a WSGI-compatible function for this application."""
-
-    #     def peep(iterator):
-    #         """Peeps into an iterator by doing an iteration
-    #         and returns an equivalent iterator.
-    #         """
-    #         # wsgi requires the headers first
-    #         # so we need to do an iteration
-    #         # and save the result for later
-    #         try:
-    #             firstchunk = next(iterator)
-    #         except StopIteration:
-    #             firstchunk = ""
-
-    #         return itertools.chain([firstchunk], iterator)
-
-    #     def wsgi(env, start_resp):
-    #         # clear threadlocal to avoid inteference of previous requests
-    #         self._cleanup()
-
-    #         self.load(env)
-    #         try:
-    #             # allow uppercase methods only
-    #             if web.ctx.method.upper() != web.ctx.method:
-    #                 raise web.nomethod()
-
-    #             result = self.handle_with_processors()
-    #             if is_iter(result):
-    #                 result = peep(result)
-    #             else:
-    #                 result = [result]
-    #         except web.HTTPError as e:
-    #             result = [e.data]
-
-    #         def build_result(result):
-    #             for r in result:
-    #                 if isinstance(r, bytes):
-    #                     yield r
-    #                 elif isinstance(r, string_types):
-    #                     yield r.encode("utf-8")
-    #                 else:
-    #                     yield str(r).encode("utf-8")
-
-    #         result = build_result(result)
-
-    #         status, headers = web.ctx.status, web.ctx.headers
-    #         start_resp(status, headers)
-
-    #         def cleanup():
-    #             self._cleanup()
-    #             yield b""  # force this function to be a generator
-
-    #         return itertools.chain(result, cleanup())
-
-    #     for m in middleware:
-    #         wsgi = m(wsgi)
-
-    #     return wsgi
+        return await process(self.processors)
 
     def asgifunc(self, *middleware):
         """Return a ASGI-compatibal function for this application."""
@@ -321,36 +261,39 @@ class application:
         def asgi(scope):
             self.load(scope)
 
-            async def _(receive, send):
-                body = b""
-                more_body = True
-                while more_body:
-                    message = await receive()
-                    if message["type"] == "http.request":
-                        body += message["body"]
-                        more_body = message["more_body"]
-
-                try:
-                    if web.ctx.method.upper() != web.ctx.method:
-                        raise web.nomethod()
-                    result = self.handle_with_processors()
-
-                except web.HTTPError as e:
-                    result = e.data
-
-                await send({"type": "http.response.start", "status": web.ctx.status, "headers": web.ctx.headers})
-                if is_iter(result):
-                    for chunck in result:
-                        await send({"type": "http.response.body", "body": safebytes(chunck), "more_body": True})
-                    await send({"type": "http.response.body", "body": b"", "more_body": False})
-                else:
-                    await send({"type": "http.response.body", "body": safebytes(result), "more_body": False})
-
-            return _
+            return self
 
         for m in middleware:
             asgi = m(asgi)
+
         return asgi
+
+    async def __call__(receive, send):
+        body = b""
+        more_body = True
+        while more_body:
+            message = await receive()
+            if message["type"] == "http.request":
+                body += message["body"]
+                more_body = message["more_body"]
+
+        try:
+            if web.ctx.method.upper() != web.ctx.method:
+                raise web.nomethod()
+            result = await self.handle_with_processors()
+
+        except web.HTTPError as e:
+            result = e.data
+
+        await send({"type": "http.response.start", "status": web.ctx.status, "headers": web.ctx.headers})
+        if is_iter(result):
+            for chunck in result:
+                await send({"type": "http.response.body", "body": safebytes(chunck), "more_body": True})
+            await send({"type": "http.response.body", "body": b"", "more_body": False})
+        else:
+            await send({"type": "http.response.body", "body": safebytes(result), "more_body": False})
+
+    return _
 
     def run(self, *middleware):
         """
@@ -448,22 +391,26 @@ class application:
 
         ctx.app_stack = []
 
-    def _delegate(self, f, fvars, args=[]):
-        def handle_class(cls):
+    async def _delegate(self, f, fvars, args=[]):
+        async def handle_class(cls):
             meth = web.ctx.method
             if meth == "HEAD" and not hasattr(cls, meth):
                 meth = "GET"
             if not hasattr(cls, meth):
                 raise web.nomethod(cls)
             tocall = getattr(cls(), meth)
+            if asyncio.iscoroutinuefunction(tocall):
+                return await tocall(*args)
             return tocall(*args)
 
         if f is None:
             raise web.notfound()
         elif isinstance(f, application):
-            return f.handle_with_processors()
+            return await f.handle_with_processors()
+        elif asyncio.iscoroutine(f):
+            return await f
         elif isclass(f):
-            return handle_class(f)
+            return await handle_class(f)
         elif isinstance(f, string_types):
             if f.startswith("redirect "):
                 url = f.split(" ", 1)[1]
@@ -478,7 +425,9 @@ class application:
                 cls = getattr(mod, cls)
             else:
                 cls = fvars[f]
-            return handle_class(cls)
+            return await handle_class(cls)
+        elif asyncio.iscoroutinuefunction(f):
+            return await f()
         elif callable(f):
             return f()
         else:
@@ -500,7 +449,7 @@ class application:
                 return what, [x for x in result.groups()]
         return None, None
 
-    def _delegate_sub_application(self, dir, app):
+    async def _delegate_sub_application(self, dir, app):
         """Deletes request to sub application `app` rooted at the directory `dir`.
         The home, homepath, path and fullpath values in web.ctx are updated to mimic request
         to the subapp and are restored after it is handled.
@@ -512,7 +461,7 @@ class application:
         web.ctx.homepath += dir
         web.ctx.path = web.ctx.path[len(dir) :]
         web.ctx.fullpath = web.ctx.fullpath[len(dir) :]
-        return app.handle_with_processors()
+        return await app.handle_with_processors()
 
     def get_parent_app(self):
         if self in web.ctx.app_stack:
@@ -537,17 +486,6 @@ class application:
             return debugerror()
         else:
             return web._InternalError()
-
-
-def with_metaclass(mcls):
-    def decorator(cls):
-        body = vars(cls).copy()
-        # clean out class body
-        body.pop("__dict__", None)
-        body.pop("__weakref__", None)
-        return mcls(cls.__name__, cls.__bases__, body)
-
-    return decorator
 
 
 class auto_application(application):
@@ -610,10 +548,10 @@ class subdomain_application(application):
         b'not found'
     """
 
-    def handle(self):
+    async def handle(self):
         host = web.ctx.host.split(":")[0]  # strip port
         fn, args = self._match(self.mapping, host)
-        return self._delegate(fn, self.fvars, args)
+        return await self._delegate(fn, self.fvars, args)
 
     def _match(self, mapping, value):
         for pat, what in mapping:
