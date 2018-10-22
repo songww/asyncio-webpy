@@ -4,12 +4,11 @@ Web application
 """
 from __future__ import print_function
 
-import itertools
 import os
 import sys
 import traceback
 from importlib import reload
-from inspect import isclass
+from inspect import isclass, iscoroutine, iscoroutinefunction
 from io import BytesIO
 from urllib.parse import splitquery, unquote, urlencode
 
@@ -268,7 +267,7 @@ class application:
 
         return asgi
 
-    async def __call__(receive, send):
+    async def __call__(self, receive, send):
         body = b""
         more_body = True
         while more_body:
@@ -292,8 +291,6 @@ class application:
             await send({"type": "http.response.body", "body": b"", "more_body": False})
         else:
             await send({"type": "http.response.body", "body": safebytes(result), "more_body": False})
-
-    return _
 
     def run(self, *middleware):
         """
@@ -399,7 +396,7 @@ class application:
             if not hasattr(cls, meth):
                 raise web.nomethod(cls)
             tocall = getattr(cls(), meth)
-            if asyncio.iscoroutinuefunction(tocall):
+            if iscoroutinefunction(tocall):
                 return await tocall(*args)
             return tocall(*args)
 
@@ -407,7 +404,7 @@ class application:
             raise web.notfound()
         elif isinstance(f, application):
             return await f.handle_with_processors()
-        elif asyncio.iscoroutine(f):
+        elif iscoroutine(f):
             return await f
         elif isclass(f):
             return await handle_class(f)
@@ -426,7 +423,7 @@ class application:
             else:
                 cls = fvars[f]
             return await handle_class(cls)
-        elif asyncio.iscoroutinuefunction(f):
+        elif iscoroutinefunction(f):
             return await f()
         elif callable(f):
             return f()
