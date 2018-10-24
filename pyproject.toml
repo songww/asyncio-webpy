@@ -23,6 +23,9 @@ jedi = "^0.13.1"
 mypy = "^0.630"
 flake8-isort = "^2.5"
 flake8-mypy = "^17.8"
+pytest = "^3.9"
+pytest-mypy = "^0.3.2"
+asynctest = "^0.12.2"
 
 [tool.black]
 line-length = 119

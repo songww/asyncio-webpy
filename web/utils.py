@@ -391,7 +391,7 @@ def safebytes(obj, encoding="utf-8"):
     elif is_iter(obj):
         return map(safebytes, obj)
     else:
-        return str(obj)
+        return bytes(obj)
 
 
 def timelimit(timeout):
@@ -1580,9 +1580,9 @@ class Context(object):
     """
 
     _instances = []
+    _vars = {}
 
     def __init__(self):
-        self.__dict__["_vars"] = {}
         self.__class__._instances.append(self)
 
     #     self.__environ__ = contextvars.ContextVar("environ")
@@ -1613,7 +1613,7 @@ class Context(object):
             raise AttributeError(f"'{self.__class__.__name__}' has no attribute '{name}'")
 
     def items(self):
-        return ((var.name, value) for var, value in contextvars.copy_context().items())
+        return [(var.name, value) for var, value in contextvars.copy_context().items()]
 
     def clear(self):
         self._vars.clear()
@@ -1622,6 +1622,47 @@ class Context(object):
     def clear_all(cls):
         [ins.clear() for ins in cls._instances]
         cls._instances.clear()
+
+    def __iter__(self):
+        return self._vars.keys()
+
+    def get(self, key, default=None):
+        var = self._vars.get(key)
+        if not var:
+            return default
+        return var.get()
+
+    def update(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def setdefault(self, key, default=None):
+        var = contextvars.ContextVar(key)
+        var.set(default)
+        self._vars[key] = var
+
+    def popitem(self):
+        raise NotImplementedError
+
+    def pop(self, key, *args):
+        raise NotImplementedError
+
+    def itervalues(self):
+        for var in self._vars.values():
+            yield var.get()
+
+    def values(self):
+        return list(self.itervalues())
+
+    def iterkeys(self):
+        return self._vars.keys()
+
+    iter = keys = iterkeys
+
+    def __contains__(self, key):
+        return key in self._vars
+
+    def __delitem__(self, key):
+        self._vars.pop(key)
 
 
 if __name__ == "__main__":

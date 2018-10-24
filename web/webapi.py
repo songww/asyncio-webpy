@@ -87,7 +87,7 @@ class HTTPError(Exception):
         for k, v in headers.items():
             header(k, v)
         self.data = data
-        super().__init__(self, status)
+        super().__init__(status)
 
 
 def _status_code(status, data=None, classname=None, docstring=None):
@@ -97,7 +97,7 @@ def _status_code(status, data=None, classname=None, docstring=None):
     docstring = docstring or "`%s` status" % status
 
     def __init__(self, data=data, headers={}):
-        super().__init__(self, status, headers, data)
+        super().__init__(status, headers, data)
 
     # trick to create class dynamically with dynamic docstring.
     return type(classname, (HTTPError, object), {"__doc__": docstring, "__init__": __init__})
@@ -128,7 +128,7 @@ class Redirect(HTTPError):
             newloc = home + newloc
 
         headers = {"Content-Type": "text/html", "Location": newloc}
-        super().__init__(self, status, headers, "")
+        super().__init__(status, headers, "")
 
 
 redirect = Redirect
@@ -138,7 +138,7 @@ class Found(Redirect):
     """A `302 Found` redirect."""
 
     def __init__(self, url, absolute=False):
-        super().__init__(self, url, "302 Found", absolute=absolute)
+        super().__init__(url, "302 Found", absolute=absolute)
 
 
 found = Found
@@ -148,7 +148,7 @@ class SeeOther(Redirect):
     """A `303 See Other` redirect."""
 
     def __init__(self, url, absolute=False):
-        super().__init__(self, url, "303 See Other", absolute=absolute)
+        super().__init__(url, "303 See Other", absolute=absolute)
 
 
 seeother = SeeOther
@@ -158,7 +158,7 @@ class NotModified(HTTPError):
     """A `304 Not Modified` status."""
 
     def __init__(self):
-        super().__init__(self, "304 Not Modified")
+        super().__init__("304 Not Modified")
 
 
 notmodified = NotModified
@@ -168,7 +168,7 @@ class TempRedirect(Redirect):
     """A `307 Temporary Redirect` redirect."""
 
     def __init__(self, url, absolute=False):
-        super().__init__(self, url, "307 Temporary Redirect", absolute=absolute)
+        super().__init__(url, "307 Temporary Redirect", absolute=absolute)
 
 
 tempredirect = TempRedirect
@@ -182,7 +182,7 @@ class BadRequest(HTTPError):
     def __init__(self, message=None):
         status = "400 Bad Request"
         headers = {"Content-Type": "text/html"}
-        super().__init__(self, status, headers, message or self.message)
+        super().__init__(status, headers, message or self.message)
 
 
 badrequest = BadRequest
@@ -196,7 +196,7 @@ class Unauthorized(HTTPError):
     def __init__(self, message=None):
         status = "401 Unauthorized"
         headers = {"Content-Type": "text/html"}
-        super().__init__(self, status, headers, message or self.message)
+        super().__init__(status, headers, message or self.message)
 
 
 unauthorized = Unauthorized
@@ -210,7 +210,7 @@ class Forbidden(HTTPError):
     def __init__(self, message=None):
         status = "403 Forbidden"
         headers = {"Content-Type": "text/html"}
-        super().__init__(self, status, headers, message or self.message)
+        super().__init__(status, headers, message or self.message)
 
 
 forbidden = Forbidden
@@ -224,7 +224,7 @@ class _NotFound(HTTPError):
     def __init__(self, message=None):
         status = "404 Not Found"
         headers = {"Content-Type": "text/html"}
-        super().__init__(self, status, headers, message or self.message)
+        super().__init__(status, headers, message or self.message)
 
 
 def NotFound(message=None):
@@ -255,7 +255,7 @@ class NoMethod(HTTPError):
 
         headers["Allow"] = ", ".join(methods)
         data = None
-        super().__init__(self, status, headers, data)
+        super().__init__(status, headers, data)
 
 
 nomethod = NoMethod
@@ -269,7 +269,7 @@ class NotAcceptable(HTTPError):
     def __init__(self, message=None):
         status = "406 Not Acceptable"
         headers = {"Content-Type": "text/html"}
-        super().__init__(self, status, headers, message or self.message)
+        super().__init__(status, headers, message or self.message)
 
 
 notacceptable = NotAcceptable
@@ -283,7 +283,7 @@ class Conflict(HTTPError):
     def __init__(self, message=None):
         status = "409 Conflict"
         headers = {"Content-Type": "text/html"}
-        super().__init__(self, status, headers, message or self.message)
+        super().__init__(status, headers, message or self.message)
 
 
 conflict = Conflict
@@ -297,7 +297,7 @@ class Gone(HTTPError):
     def __init__(self, message=None):
         status = "410 Gone"
         headers = {"Content-Type": "text/html"}
-        super().__init__(self, status, headers, message or self.message)
+        super().__init__(status, headers, message or self.message)
 
 
 gone = Gone
@@ -311,7 +311,7 @@ class PreconditionFailed(HTTPError):
     def __init__(self, message=None):
         status = "412 Precondition Failed"
         headers = {"Content-Type": "text/html"}
-        super().__init__(self, status, headers, message or self.message)
+        super().__init__(status, headers, message or self.message)
 
 
 preconditionfailed = PreconditionFailed
@@ -325,7 +325,7 @@ class UnsupportedMediaType(HTTPError):
     def __init__(self, message=None):
         status = "415 Unsupported Media Type"
         headers = {"Content-Type": "text/html"}
-        super().__init__(self, status, headers, message or self.message)
+        super().__init__(status, headers, message or self.message)
 
 
 unsupportedmediatype = UnsupportedMediaType
@@ -339,7 +339,7 @@ class _UnavailableForLegalReasons(HTTPError):
     def __init__(self, message=None):
         status = "451 Unavailable For Legal Reasons"
         headers = {"Content-Type": "text/html"}
-        super().__init__(self, status, headers, message or self.message)
+        super().__init__(status, headers, message or self.message)
 
 
 def UnavailableForLegalReasons(message=None):
@@ -364,7 +364,7 @@ class _InternalError(HTTPError):
     def __init__(self, message=None):
         status = "500 Internal Server Error"
         headers = {"Content-Type": "text/html"}
-        super().__init__(self, status, headers, message or self.message)
+        super().__init__(status, headers, message or self.message)
 
 
 def InternalError(message=None):
@@ -412,12 +412,12 @@ def rawinput(method=None):
 
         return dict([(k, fs[k]) for k in fs.keys()])
 
-    e = ctx.env.copy()
+    e = ctx.scope.copy()
     a = b = {}
 
     if method.lower() in ["both", "post", "put"]:
-        if e["REQUEST_METHOD"] in ["POST", "PUT"]:
-            if e.get("CONTENT_TYPE", "").lower().startswith("multipart/"):
+        if e["method"] in ["POST", "PUT"]:
+            if e.get("content_type", "").lower().startswith("multipart/"):
                 # since wsgi.input is directly passed to cgi.FieldStorage,
                 # it can not be called multiple times. Saving the FieldStorage
                 # object in ctx to allow calling web.input multiple times.
@@ -428,14 +428,12 @@ def rawinput(method=None):
                     ctx._fieldstorage = a
             else:
                 d = data()
-                if PY2 and isinstance(d, unicode):
-                    d = d.encode("utf-8")
                 fp = BytesIO(d)
                 a = cgi.FieldStorage(fp=fp, environ=e, keep_blank_values=1)
             a = dictify(a)
 
     if method.lower() in ["both", "get"]:
-        e["REQUEST_METHOD"] = "GET"
+        e["method"] = "GET"
         b = dictify(cgi.FieldStorage(environ=e, keep_blank_values=1))
 
     def process_fieldstorage(fs):
@@ -581,7 +579,7 @@ def cookies(*requireds, **defaults):
 
     # parse cookie string and cache the result for next time.
     if "_parsed_cookies" not in ctx:
-        http_cookie = ctx.env.get("HTTP_COOKIE", "")
+        http_cookie = ctx.scope.get("http_cookie", "")
         ctx._parsed_cookies = parse_cookies(http_cookie)
 
     try:

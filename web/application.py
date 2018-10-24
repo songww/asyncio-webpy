@@ -9,7 +9,6 @@ import sys
 import traceback
 from importlib import reload
 from inspect import isclass, iscoroutine, iscoroutinefunction
-from io import BytesIO
 from urllib.parse import splitquery, unquote, urlencode
 
 from . import browser, httpserver, utils
@@ -138,7 +137,9 @@ class application:
         """
         self.processors.append(processor)
 
-    def request(self, localpart="/", method="GET", data=None, host="0.0.0.0:8080", headers=None, https=False, **kw):
+    async def request(
+        self, localpart="/", method="GET", data=None, host="0.0.0.0:8080", headers=None, https=False, **kw
+    ):
         """Makes request to this application for the specified path and method.
         Response will be a storage object with data, status and headers.
 
@@ -149,7 +150,7 @@ class application:
             ...         web.header('Content-Type', 'text/plain')
             ...         return "hello"
             ...
-            >>> response = app.request("/hello")
+            >>> response = await app.request("/hello")
             >>> response.data
             b'hello'
             >>> response.status
@@ -164,10 +165,10 @@ class application:
             >>> class redirect:
             ...     def GET(self): raise web.seeother("/foo")
             ...
-            >>> response = app.request("/redirect")
+            >>> response = await app.request("/redirect")
             >>> response.headers['Location']
             'http://0.0.0.0:8080/foo'
-            >>> response = app.request("/redirect", https=True)
+            >>> response = await app.request("/redirect", https=True)
             >>> response.headers['Location']
             'https://0.0.0.0:8080/foo'
 
@@ -180,7 +181,7 @@ class application:
             ...         return 'your user-agent is ' + web.ctx.env['HTTP_USER_AGENT']
             ...
             >>> app = application(urls, globals())
-            >>> app.request('/ua', headers = {
+            >>> await app.request('/ua', headers = {
             ...      'User-Agent': 'a small jumping bean/1.0 (compatible)'
             ... }).data
             b'your user-agent is a small jumping bean/1.0 (compatible)'
@@ -189,21 +190,36 @@ class application:
         path, maybe_query = splitquery(localpart)
         query = maybe_query or ""
 
-        if "env" in kw:
-            env = kw["env"]
+        if "scope" in kw:
+            scope = kw["scope"]
         else:
-            env = {}
-        env = dict(env, HTTP_HOST=host, REQUEST_METHOD=method, PATH_INFO=path, QUERY_STRING=query, HTTPS=str(https))
+            scope = {}
+        scope = dict(
+            scope,
+            server=host,
+            method=method,
+            path=path,
+            query_string=safebytes(query),
+            https=str(https),
+            headers=[],
+            scheme="http",
+            http_version="1.1",
+            root_path="",
+        )
         headers = headers or {}
 
+        has_content_length = False
         for k, v in headers.items():
-            env["HTTP_" + k.upper().replace("-", "_")] = v
+            bytes_key = safebytes(k.lower().replace("-", "_"))
+            if bytes_key == b"content_length":
+                has_content_length = True
+                scope["headers"].append((bytes_key, safebytes(v)))
+            elif bytes_key == b"content_type":
+                scope["headers"].append((bytes_key, safebytes(v)))
+            else:
+                scope["headers"].append((b"http_" + bytes_key, safebytes(v)))
 
-        if "HTTP_CONTENT_LENGTH" in env:
-            env["CONTENT_LENGTH"] = env.pop("HTTP_CONTENT_LENGTH")
-
-        if "HTTP_CONTENT_TYPE" in env:
-            env["CONTENT_TYPE"] = env.pop("HTTP_CONTENT_TYPE")
+        q = ""
 
         if method not in ["HEAD", "GET"]:
             data = data or ""
@@ -213,19 +229,27 @@ class application:
             else:
                 q = data
 
-            env["wsgi.input"] = BytesIO(q.encode("utf-8"))
+            # env["wsgi.input"] = BytesIO(q.encode("utf-8"))
             # if not env.get('CONTENT_TYPE', '').lower().startswith('multipart/') and 'CONTENT_LENGTH' not in env:
-            if "CONTENT_LENGTH" not in env:
-                env["CONTENT_LENGTH"] = len(q)
+            if not has_content_length:
+                scope["headers"].append((b"content_length", len(q)))
         response = web.storage()
+        response_data = []
 
-        def start_response(status, headers):
-            response.status = status
-            response.headers = dict(headers)
-            response.header_items = headers
+        async def receive():
+            return {"type": "http.request", "body": q.encode("utf8"), "more_body": False}
 
-        data = self.wsgifunc()(env, start_response)
-        response.data = b"".join(data)
+        async def send_response(message):
+            if message["type"] == "http.response.start":
+                response.status = f'{message["status"]} OK'
+                response.headers = dict(message["headers"])
+                response.header_items = message["headers"]
+            elif message["type"] == "http.response.body":
+                response_data.append(safebytes(message["body"]))
+
+        await self.asgifunc()(scope)(receive, send_response)
+        print(response_data)
+        response.data = b"".join(response_data)
         return response
 
     def browser(self):
@@ -333,7 +357,7 @@ class application:
         ctx.host = host
         ctx.port = port
 
-        if scope.get("HTTPS", "").lower() in ["on", "true", "1"]:
+        if scope.get("https", "").lower() in ["on", "true", "1"]:
             ctx.protocol = "https"
         else:
             ctx.protocol = scope["scheme"]
@@ -412,7 +436,7 @@ class application:
             if f.startswith("redirect "):
                 url = f.split(" ", 1)[1]
                 if web.ctx.method == "GET":
-                    x = web.ctx.env.get("QUERY_STRING", "")
+                    x = web.ctx.scope.get("query_string", "")
                     if x:
                         url += "?" + x
                 raise web.redirect(url)
@@ -446,7 +470,7 @@ class application:
                 return what, [x for x in result.groups()]
         return None, None
 
-    async def _delegate_sub_application(self, dir, app):
+    def _delegate_sub_application(self, dir, app):
         """Deletes request to sub application `app` rooted at the directory `dir`.
         The home, homepath, path and fullpath values in web.ctx are updated to mimic request
         to the subapp and are restored after it is handled.
@@ -458,7 +482,7 @@ class application:
         web.ctx.homepath += dir
         web.ctx.path = web.ctx.path[len(dir) :]
         web.ctx.fullpath = web.ctx.fullpath[len(dir) :]
-        return await app.handle_with_processors()
+        return app.handle_with_processors()
 
     def get_parent_app(self):
         if self in web.ctx.app_stack:
