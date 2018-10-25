@@ -4,11 +4,12 @@ Web application
 """
 from __future__ import print_function
 
+import logging
 import os
 import sys
 import traceback
 from importlib import reload
-from inspect import isclass, iscoroutine, iscoroutinefunction
+from inspect import isawaitable, isclass, iscoroutine, iscoroutinefunction
 from urllib.parse import splitquery, unquote, urlencode
 
 from . import browser, httpserver, utils
@@ -27,6 +28,8 @@ __all__ = [
     "unloadhook",
     "autodelegate",
 ]
+
+logger = logging.getLogger("web")
 
 
 class application:
@@ -190,13 +193,11 @@ class application:
         path, maybe_query = splitquery(localpart)
         query = maybe_query or ""
 
-        if "scope" in kw:
-            scope = kw["scope"]
-        else:
-            scope = {}
+        server = host.split(":")
+        if len(server) == 1:
+            server.append(80)
         scope = dict(
-            scope,
-            server=host,
+            server=server,
             method=method,
             path=path,
             query_string=safebytes(query),
@@ -206,6 +207,8 @@ class application:
             http_version="1.1",
             root_path="",
         )
+        if "scope" in kw:
+            scope.update(kw["scope"])
         headers = headers or {}
 
         has_content_length = False
@@ -233,6 +236,8 @@ class application:
             # if not env.get('CONTENT_TYPE', '').lower().startswith('multipart/') and 'CONTENT_LENGTH' not in env:
             if not has_content_length:
                 scope["headers"].append((b"content_length", len(q)))
+
+        logger.getChild("application.request").debug("scope(%s)", scope)
         response = web.storage()
         response_data = []
 
@@ -257,26 +262,30 @@ class application:
 
     async def handle(self):
         fn, args = self._match(self.mapping, web.ctx.path)
+        logger.getChild("application.handle").debug("match result: fn(%s), args(%s)", fn, args)
         return await self._delegate(fn, self.fvars, args)
 
-    async def handle_with_processors(self):
+    def handle_with_processors(self):
         async def process(processors):
             try:
                 if processors:
                     p, processors = processors[0], processors[1:]
-                    return await p(lambda: process(processors))
+                    response = await p(lambda: process(processors))
+                    if isawaitable(response):
+                        return await response
+                    return response
                 else:
                     return await self.handle()
             except web.HTTPError:
                 raise
             except (KeyboardInterrupt, SystemExit):
                 raise
-            except Exception:
-                print(traceback.format_exc(), file=web.debug)
+            except Exception as exc:
+                logger.getChild("application.handle_with_processors").critical("", exc_info=exc)
                 raise self.internalerror()
 
         # processors must be applied in the resvere order. (??)
-        return await process(self.processors)
+        return process(self.processors)
 
     def asgifunc(self, *middleware):
         """Return a ASGI-compatibal function for this application."""
@@ -425,12 +434,19 @@ class application:
             return tocall(*args)
 
         if f is None:
+            logger.getChild("application._delegate").debug("fn(%s) not found.", f)
             raise web.notfound()
         elif isinstance(f, application):
+            logger.getChild("application._delegate").debug("calling handle_with_processors")
             return await f.handle_with_processors()
+        elif iscoroutinefunction(f):
+            logger.getChild("application._delegate").debug("awaiting coroutine function.")
+            return await f()
         elif iscoroutine(f):
+            logger.getChild("application._delegate").debug("awaiting coroutine.")
             return await f
         elif isclass(f):
+            logger.getChild("application._delegate").debug("calling class %s.", f)
             return await handle_class(f)
         elif isinstance(f, string_types):
             if f.startswith("redirect "):
@@ -439,6 +455,7 @@ class application:
                     x = web.ctx.scope.get("query_string", "")
                     if x:
                         url += "?" + x
+                logger.getChild("application._delegate").debug("%s to %s.", f, url)
                 raise web.redirect(url)
             elif "." in f:
                 mod, cls = f.rsplit(".", 1)
@@ -446,19 +463,20 @@ class application:
                 cls = getattr(mod, cls)
             else:
                 cls = fvars[f]
+            logger.getChild("application._delegate").debug("calling class %s", cls)
             return await handle_class(cls)
-        elif iscoroutinefunction(f):
-            return await f()
         elif callable(f):
+            logger.getChild("application._delegate").debug("callable object %s", f)
             return f()
         else:
+            logger.getChild("application._delegate").debug("%s not found.", f)
             return web.notfound()
 
     def _match(self, mapping, value):
         for pat, what in mapping:
             if isinstance(what, application):
                 if value.startswith(pat):
-                    return (lambda: self._delegate_sub_application(pat, what), None)
+                    return (self._delegate_sub_application(pat, what), None)
                 else:
                     continue
             elif isinstance(what, string_types):
@@ -558,7 +576,7 @@ class subdomain_application(application):
         >>> class hello:
         ...     def GET(self): return "hello"
         >>>
-        >>> mapping = (r"hello\.example\.com", app)
+        >>> mapping = ("hello.example.com", app)
         >>> app2 = subdomain_application(mapping)
         >>> app2.request("/hello", host="hello.example.com").data
         b'hello'
@@ -571,7 +589,9 @@ class subdomain_application(application):
 
     async def handle(self):
         host = web.ctx.host.split(":")[0]  # strip port
+        logger.getChild("subdomain_application.handle").debug("host: %s", host)
         fn, args = self._match(self.mapping, host)
+        logger.getChild("subdomain_application.handle").debug("fn: %s, args: %s", fn, args)
         return await self._delegate(fn, self.fvars, args)
 
     def _match(self, mapping, value):
@@ -582,6 +602,7 @@ class subdomain_application(application):
                 result = utils.re_compile("^" + pat + "$").match(value)
 
             if result:  # it's a match
+                logger.getChild("subdomain_application._match").debug("result: %s, what: %s", result, what)
                 return what, [x for x in result.groups()]
         return None, None
 
@@ -596,9 +617,15 @@ def loadhook(h):
         >>> app.add_processor(loadhook(f))
     """
 
-    def processor(handler):
-        h()
-        return handler()
+    async def processor(handler):
+        if iscoroutinefunction(h):
+            await h()
+        else:
+            h()
+        if iscoroutinefunction(handler):
+            return await handler()
+        else:
+            return handler()
 
     return processor
 
@@ -613,19 +640,28 @@ def unloadhook(h):
         >>> app.add_processor(unloadhook(f))
     """
 
-    def processor(handler):
+    async def processor(handler):
         try:
-            result = handler()
+            if iscoroutinefunction(handler):
+                result = await handler()
+            else:
+                result = handler()
             is_gen = is_iter(result)
         except Exception:
             # run the hook even when handler raises some exception
-            h()
+            if iscoroutinefunction(h):
+                await h()
+            else:
+                h()
             raise
 
         if is_gen:
             return wrap(result)
         else:
-            h()
+            if iscoroutinefunction(h):
+                await h()
+            else:
+                h()
             return result
 
     def wrap(result):

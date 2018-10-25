@@ -64,11 +64,11 @@ __all__ = [
 import cgi
 import pprint
 import sys
-import urllib
 from http.cookies import CookieError, Morsel, SimpleCookie
 from io import BytesIO, StringIO
-from urllib.parse import quote, unquote
+from urllib.parse import parse_qs, quote, unquote
 
+from . import types
 from .py3helpers import string_types, urljoin
 from .utils import Context, dictadd, intget, safestr, storage, storify
 
@@ -398,6 +398,10 @@ def header(hdr, value, unique=False):
                 return
 
     ctx.headers.append((hdr, value))
+
+
+def query():
+    return types.QueryParams(parse_qs(ctx.query.strip("?")))
 
 
 def rawinput(method=None):

@@ -4,8 +4,8 @@ import time
 import unittest
 from urllib.parse import urlencode
 
-import pytest
 import asynctest
+import pytest
 
 import web
 
@@ -178,13 +178,13 @@ class ApplicationTest(asynctest.TestCase):
         response = await app.request("/blog/foo")
         self.assertEqual(response.headers["Location"], "http://0.0.0.0:8080/login")
 
-        response = await app.request("/blog/foo", env={"SCRIPT_NAME": "/x"})
+        response = await app.request("/blog/foo", scope={"root_path": "/x"})
         self.assertEqual(response.headers["Location"], "http://0.0.0.0:8080/x/login")
 
         response = await app.request("/blog/foo2")
         self.assertEqual(response.headers["Location"], "http://0.0.0.0:8080/blog/bar")
 
-        response = await app.request("/blog/foo2", env={"SCRIPT_NAME": "/x"})
+        response = await app.request("/blog/foo2", scope={"root_path": "/x"})
         self.assertEqual(response.headers["Location"], "http://0.0.0.0:8080/x/blog/bar")
 
     async def test_processors(self):
@@ -272,8 +272,8 @@ class ApplicationTest(asynctest.TestCase):
             self.assertEqual(response.status.split()[0], "404")
             self.assertEqual(response.data, message)
 
-        await assert_notfound("/a/foo", b"not found 1")
         await assert_notfound("/b/foo", b"not found")
+        await assert_notfound("/a/foo", b"not found 1")
 
         app.notfound = lambda: web.HTTPError("404 Not Found", {}, "not found 2")
         await assert_notfound("/a/foo", b"not found 1")
@@ -340,7 +340,7 @@ class ApplicationTest(asynctest.TestCase):
         app = web.application(urls, locals())
 
         async def f(script_name=""):
-            response = await app.request("/", env={"SCRIPT_NAME": script_name})
+            response = await app.request("/", scope={"root_path": script_name})
             return response.headers["Set-Cookie"]
 
         self.assertEqual(await f(""), "foo=bar; Path=/")

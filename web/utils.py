@@ -1340,7 +1340,7 @@ def to36(q):
     return "".join(converted) or "0"
 
 
-r_url = re_compile("(?<!\()(http://(\S+))")
+r_url = re_compile(r"(?<!\()(http://(\S+))")
 
 
 def safemarkdown(text):
@@ -1660,6 +1660,14 @@ class Context(object):
 
     def __contains__(self, key):
         return key in self._vars
+
+    def __getitem__(self, key):
+        var = self._vars.get(key)
+        ctx = contextvars.copy_context()
+        if var and var in ctx:
+            return ctx[var]
+        else:
+            raise KeyError(key)
 
     def __delitem__(self, key):
         self._vars.pop(key)

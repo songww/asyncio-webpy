@@ -5,13 +5,16 @@ HTTP Utilities
 
 __all__ = ["expires", "lastmodified", "prefixurl", "modified", "changequery", "url", "profiler"]
 
-import sys, os, threading, urllib
 import datetime
-from . import net, utils, webapi as web
-
-from .py3helpers import iteritems
-
+import os
+import sys
+import threading
+import urllib
 from urllib.parse import urlencode as urllib_urlencode
+
+from . import net, utils
+from . import webapi as web
+from .py3helpers import iteritems
 
 
 def prefixurl(base=""):
@@ -111,7 +114,7 @@ def changequery(query=None, **kw):
     changed.
     """
     if query is None:
-        query = web.rawinput(method="get")
+        query = web.query()
     for k, v in iteritems(kw):
         if v is None:
             query.pop(k, None)
