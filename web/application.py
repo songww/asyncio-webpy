@@ -7,9 +7,9 @@ from __future__ import print_function
 import logging
 import os
 import sys
-import traceback
 from importlib import reload
 from inspect import isawaitable, isclass, iscoroutine, iscoroutinefunction
+from io import BytesIO
 from urllib.parse import splitquery, unquote, urlencode
 
 from . import browser, httpserver, utils
@@ -246,14 +246,14 @@ class application:
 
         async def send_response(message):
             if message["type"] == "http.response.start":
-                response.status = f'{message["status"]} OK'
+                response.status = f'{message["status"]}'
                 response.headers = dict(message["headers"])
                 response.header_items = message["headers"]
             elif message["type"] == "http.response.body":
                 response_data.append(safebytes(message["body"]))
 
         await self.asgifunc()(scope)(receive, send_response)
-        print(response_data)
+        logger.getChild("application.request").debug("response(%s)", response_data)
         response.data = b"".join(response_data)
         return response
 
@@ -301,13 +301,15 @@ class application:
         return asgi
 
     async def __call__(self, receive, send):
-        body = b""
+        body = BytesIO()
         more_body = True
         while more_body:
             message = await receive()
             if message["type"] == "http.request":
-                body += message["body"]
+                body.write(message["body"])
                 more_body = message["more_body"]
+
+        web.ctx.scope["input"] = body
 
         try:
             if web.ctx.method.upper() != web.ctx.method:
@@ -454,7 +456,7 @@ class application:
                 if web.ctx.method == "GET":
                     x = web.ctx.scope.get("query_string", "")
                     if x:
-                        url += "?" + x
+                        url = "?".join([url, x.decode("utf8")])
                 logger.getChild("application._delegate").debug("%s to %s.", f, url)
                 raise web.redirect(url)
             elif "." in f:

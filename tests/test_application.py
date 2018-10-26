@@ -225,7 +225,7 @@ class ApplicationTest(asynctest.TestCase):
 
         class foo:
             def GET(self, path):
-                i = web.input(name="")
+                i = web.query(name="")
                 return repr(i.name)
 
             def POST(self, path):

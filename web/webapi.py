@@ -8,6 +8,7 @@ __all__ = [
     "header",
     "debug",
     "input",
+    "query",
     "data",
     "setcookie",
     "cookies",
@@ -65,11 +66,11 @@ import cgi
 import pprint
 import sys
 from http.cookies import CookieError, Morsel, SimpleCookie
-from io import BytesIO, StringIO
+from io import BytesIO
 from urllib.parse import parse_qs, quote, unquote
 
 from . import types
-from .py3helpers import string_types, urljoin
+from .py3helpers import urljoin
 from .utils import Context, dictadd, intget, safestr, storage, storify
 
 config = storage()
@@ -245,7 +246,7 @@ class NoMethod(HTTPError):
     """A `405 Method Not Allowed` error."""
 
     def __init__(self, cls=None):
-        status = "405 Method Not Allowed"
+        data = status = "405 Method Not Allowed"
         headers = {}
         headers["Content-Type"] = "text/html"
 
@@ -254,7 +255,6 @@ class NoMethod(HTTPError):
             methods = [method for method in methods if hasattr(cls, method)]
 
         headers["Allow"] = ", ".join(methods)
-        data = None
         super().__init__(status, headers, data)
 
 
@@ -400,8 +400,12 @@ def header(hdr, value, unique=False):
     ctx.headers.append((hdr, value))
 
 
-def query():
-    return types.QueryParams(parse_qs(ctx.query.strip("?")))
+def query(**default_kwargs):
+    params = types.QueryParams(parse_qs(ctx.query.strip("?")))
+    for key, value in default_kwargs.items():
+        if key not in params:
+            params[key] = value
+    return params
 
 
 def rawinput(method=None):
@@ -468,8 +472,8 @@ def input(*requireds, **defaults):
 def data():
     """Returns the data sent with the request."""
     if "data" not in ctx:
-        cl = intget(ctx.env.get("CONTENT_LENGTH"), 0)
-        ctx.data = ctx.env["wsgi.input"].read(cl)
+        cl = intget(ctx.scope["headers"].get("content_length"), 0)
+        ctx.data = ctx.scope["input"].read(cl)
     return ctx.data
 
 
@@ -508,13 +512,13 @@ def decode_cookie(value):
     """
     try:
         # First try plain ASCII encoding
-        return unicode(value, "us-ascii")
+        return str(value, "us-ascii")
     except UnicodeError:
         # Then try UTF-8, and if that fails, ISO8859
         try:
-            return unicode(value, "utf-8")
+            return str(value, "utf-8")
         except UnicodeError:
-            return unicode(value, "iso8859", "ignore")
+            return str(value, "iso8859", "ignore")
 
 
 def parse_cookies(http_cookie):
@@ -599,7 +603,7 @@ def debug(*args):
     """
     try:
         out = ctx.environ["wsgi.errors"]
-    except:
+    except KeyError:
         out = sys.stderr
     for arg in args:
         print(pprint.pformat(arg), file=out)
@@ -609,7 +613,7 @@ def debug(*args):
 def _debugwrite(x):
     try:
         out = ctx.environ["wsgi.errors"]
-    except:
+    except Exception:
         out = sys.stderr
     out.write(x)
 
