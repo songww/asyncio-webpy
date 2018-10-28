@@ -62,16 +62,17 @@ __all__ = [
     "internalerror",
 ]
 
-import pprint
 import sys
-from http.cookies import CookieError, Morsel, SimpleCookie
-from urllib.parse import parse_qsl, quote, unquote
+import pprint
+import logging
+from http.cookies import Morsel, CookieError, SimpleCookie
+from urllib.parse import quote, unquote, parse_qsl
 
 import multipart
 
 from . import types
+from .utils import Context, intget, dictadd, safestr, storage, storify
 from .py3helpers import urljoin
-from .utils import Context, dictadd, intget, safestr, storage, storify
 
 config = storage()
 config.__doc__ = """
@@ -80,6 +81,8 @@ A configuration object for various aspects of web.py.
 `debug`
    : when True, enables reloading, disabled template caching and sets internalerror to debugerror.
 """
+
+logger = logging.getLogger("web.api")
 
 
 class HTTPError(Exception):

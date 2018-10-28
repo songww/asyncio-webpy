@@ -1,8 +1,8 @@
 import time
 from urllib.parse import urlencode
 
-import asynctest
 import pytest
+import asynctest
 
 import web
 
@@ -19,17 +19,6 @@ class %(classname)s:
         return "%(output)s"
 
 """
-
-urls = ("/iter", "do_iter")
-app = web.application(urls, globals())
-
-
-class do_iter:
-    def GET(self):
-        yield "hello, "
-        yield web.input(name="world").name
-
-    POST = GET
 
 
 def write(filename, data):
@@ -291,6 +280,16 @@ class ApplicationTest(asynctest.TestCase):
         await assert_notfound("/b/foo", b"not found 2")
 
     async def testIter(self):
+        class do_iter:
+            def GET(self):
+                yield "hello, "
+                yield web.input(name="world").name
+
+            POST = GET
+
+        urls = ("/iter", "do_iter")
+        app = web.application(urls, locals())
+
         self.assertEqual((await app.request("/iter")).data, b"hello, world")
         self.assertEqual((await app.request("/iter?name=web")).data, b"hello, web")
 

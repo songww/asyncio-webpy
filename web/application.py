@@ -2,22 +2,21 @@
 Web application
 (from web.py)
 """
-from __future__ import print_function
 
-import logging
 import os
 import sys
-from importlib import reload
-from inspect import isawaitable, isclass, iscoroutine, iscoroutinefunction
+import logging
 from io import BytesIO
-from urllib.parse import splitquery, unquote, urlencode
+from inspect import isclass, isawaitable, iscoroutine, iscoroutinefunction
+from importlib import reload
+from urllib.parse import unquote, urlencode, splitquery
 
-from . import browser, httpserver, types, utils
+from . import wsgi, types, utils
 from . import webapi as web
-from . import wsgi
+from . import browser, httpserver
+from .utils import safebytes
 from .debugerror import debugerror
 from .py3helpers import is_iter, string_types
-from .utils import safebytes
 
 __all__ = [
     "application",
@@ -50,6 +49,7 @@ class application:
             autoreload = web.config.get("debug", False)
         self.init_mapping(mapping)
         self.fvars = fvars
+        self.parent = None
         self.processors = []
 
         self.add_processor(loadhook(self._load))
@@ -359,7 +359,7 @@ class application:
 
         ctx.status = 200
 
-        ctx.headers = types.Headers({})
+        ctx.headers: types.Headers = types.Headers({})
         ctx.output = ""
         # ctx.environ = ctx.env = env
         ctx.scope = scope
@@ -444,7 +444,7 @@ class application:
 
         if f is None:
             logger.getChild("application._delegate").debug("fn(%s) not found.", f)
-            raise web.notfound()
+            raise self.notfound()
         elif isinstance(f, application):
             logger.getChild("application._delegate").debug("calling handle_with_processors")
             return await f.handle_with_processors()
@@ -479,12 +479,13 @@ class application:
             return f()
         else:
             logger.getChild("application._delegate").debug("%s not found.", f)
-            return web.notfound()
+            return self.notfound()
 
     def _match(self, mapping, value):
         for pat, what in mapping:
             if isinstance(what, application):
                 if value.startswith(pat):
+                    what.parent = self
                     return (self._delegate_sub_application(pat, what), None)
                 else:
                     continue
@@ -496,6 +497,14 @@ class application:
             if result:  # it's a match
                 return what, [x for x in result.groups()]
         return None, None
+
+    @property
+    def parent(self):
+        return self._parent
+
+    @parent.setter
+    def parent(self, p):
+        self._parent = p
 
     def _delegate_sub_application(self, dir, app):
         """Deletes request to sub application `app` rooted at the directory `dir`.
@@ -519,7 +528,7 @@ class application:
 
     def notfound(self):
         """Returns HTTPError with '404 not found' message"""
-        parent = self.get_parent_app()
+        parent = self.parent
         if parent:
             return parent.notfound()
         else:
@@ -655,7 +664,7 @@ def unloadhook(h):
                 result = await handler()
             else:
                 result = handler()
-            is_gen = is_iter(result)
+            # is_gen = is_iter(result)
         except Exception:
             # run the hook even when handler raises some exception
             if iscoroutinefunction(h):
@@ -664,30 +673,30 @@ def unloadhook(h):
                 h()
             raise
 
-        if is_gen:
-            return wrap(result)
+        if iscoroutinefunction(h):
+            await h()
         else:
-            if iscoroutinefunction(h):
-                await h()
-            else:
-                h()
-            return result
+            h()
+        return result
 
-    def wrap(result):
-        def next_hook():
-            try:
-                return next(result)
-            except Exception:
-                # call the hook at the and of iterator
-                h()
-                raise
+    # def wrap(result):
+    #     def next_hook():
+    #         try:
+    #             return next(result)
+    #         except Exception:
+    #             # call the hook at the and of iterator
+    #             if iscoroutinefunction(h):
+    #                 await h()
+    #             else:
+    #                 h()
+    #             raise
 
-        result = iter(result)
-        while True:
-            try:
-                yield next_hook()
-            except StopIteration:
-                return
+    #     result = iter(result)
+    #     while True:
+    #         try:
+    #             yield from next_hook()
+    #         except StopIteration:
+    #             return
 
     return processor
 
@@ -724,9 +733,9 @@ def autodelegate(prefix=""):
             try:
                 return getattr(self, func)(*args)
             except TypeError:
-                raise web.notfound()
+                raise self.notfound()
         else:
-            raise web.notfound()
+            raise self.notfound()
 
     return internal
 
