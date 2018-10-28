@@ -4,19 +4,19 @@ simple, elegant templating
 
 Template design:
 
-Template string is split into tokens and the tokens are combined into nodes. 
-Parse tree is a nodelist. TextNode and ExpressionNode are simple nodes and 
-for-loop, if-loop etc are block nodes, which contain multiple child nodes. 
+Template string is split into tokens and the tokens are combined into nodes.
+Parse tree is a nodelist. TextNode and ExpressionNode are simple nodes and
+for-loop, if-loop etc are block nodes, which contain multiple child nodes.
 
-Each node can emit some python string. python string emitted by the 
+Each node can emit some python string. python string emitted by the
 root node is validated for safeeval and executed using python in the given environment.
 
-Enough care is taken to make sure the generated code and the template has line to line match, 
+Enough care is taken to make sure the generated code and the template has line to line match,
 so that the error messages can point to exact line number in template. (It doesn't work in some cases still.)
 
 Grammar:
 
-    template -> defwith sections 
+    template -> defwith sections
     defwith -> '$def with (' arguments ')' | ''
     sections -> section*
     section -> block | assignment | line
@@ -35,13 +35,11 @@ import os
 import re
 import sys
 import tokenize
-import warnings
 from collections import MutableMapping
 from io import open
 
 from .net import websafe
-from .py3helpers import iteritems
-from .utils import re_compile, safebytes, safestr, storage
+from .utils import re_compile, safestr, storage
 from .webapi import config
 
 __all__ = ["Template", "Render", "render", "frender", "ParseError", "SecurityError", "test"]
@@ -50,7 +48,7 @@ __all__ = ["Template", "Render", "render", "frender", "ParseError", "SecurityErr
 def splitline(text):
     r"""
     Splits the given text at newline.
-    
+
         >>> splitline('foo\nbar')
         ('foo\n', 'bar')
         >>> splitline('foo')
@@ -91,15 +89,15 @@ class Parser:
 
     def read_section(self, text):
         r"""Reads one section from the given text.
-        
+
         section -> block | assignment | line
-        
+
             >>> read_section = Parser().read_section
             >>> read_section('foo\nbar\n')
             (<line: [t'foo\n']>, 'bar\n')
             >>> read_section('$ a = b + 1\nfoo\n')
             (<assignment: 'a = b + 1'>, 'foo\n')
-            
+
         read_section('$for in range(10):\n    hello $i\nfoo)
         """
         if text.lstrip(" ").startswith("$"):
@@ -121,7 +119,7 @@ class Parser:
 
     def read_var(self, text):
         r"""Reads a var statement.
-        
+
             >>> read_var = Parser().read_var
             >>> read_var('var x=10\nfoo')
             (<var: x = 10>, 'foo')
@@ -159,7 +157,7 @@ class Parser:
 
     def read_suite(self, text):
         r"""Reads section by section till end of text.
-        
+
             >>> read_suite = Parser().read_suite
             >>> read_suite('hello $name\nfoo\n')
             [<line: [t'hello ', $name, t'\n']>, <line: [t'foo\n']>]
@@ -172,7 +170,7 @@ class Parser:
 
     def readline(self, text):
         r"""Reads one line from the text. Newline is supressed if the line ends with \.
-        
+
             >>> readline = Parser().readline
             >>> readline('hello $name!\nbye!')
             (<line: [t'hello ', $name, t'!\n']>, 'bye!')
@@ -221,7 +219,7 @@ class Parser:
 
     def read_text(self, text):
         r"""Reads a text node from the given text.
-        
+
             >>> read_text = Parser().read_text
             >>> read_text('hello $name')
             (t'hello ', '$name')
@@ -244,7 +242,7 @@ class Parser:
         extended_expr -> attr_access | paren_expr extended_expr | ''
         attr_access -> dot id extended_expr
         paren_expr -> [ tokens ] | ( tokens ) | { tokens }
-     
+
             >>> read_expr = Parser().read_expr
             >>> read_expr("name")
             ($name, '')
@@ -282,7 +280,6 @@ class Parser:
         def attr_access():
             from token import NAME  # python token constants
 
-            dot = tokens.lookahead()
             if tokens.lookahead2().type == NAME:
                 next(tokens)  # consume dot
                 identifier()
@@ -304,7 +301,7 @@ class Parser:
 
         def get_tokens(text):
             """tokenize text using python tokenizer.
-            Python tokenizer ignores spaces, but they might be important in some cases. 
+            Python tokenizer ignores spaces, but they might be important in some cases.
             This function introduces dummy space tokens when it identifies any ignored space.
             Each token is a storage object containing type, value, begin and end.
             """
@@ -363,7 +360,7 @@ class Parser:
 
     def read_assignment(self, text):
         r"""Reads assignment statement from text.
-    
+
             >>> read_assignment = Parser().read_assignment
             >>> read_assignment('a = b + 1\nfoo')
             (<assignment: 'a = b + 1'>, 'foo')
@@ -373,7 +370,7 @@ class Parser:
 
     def python_lookahead(self, text):
         """Returns the first python token from the given text.
-        
+
             >>> python_lookahead = Parser().python_lookahead
             >>> python_lookahead('for i in range(10):')
             'for'
@@ -422,7 +419,7 @@ class Parser:
 
     def read_statement(self, text):
         r"""Reads a python statement.
-        
+
             >>> read_statement = Parser().read_statement
             >>> read_statement('for i in range(10): hello $name')
             ('for i in range(10):', ' hello $name')
@@ -488,7 +485,7 @@ class PythonTokenizer:
 
     def consume_till(self, delim):
         """Consumes tokens till colon.
-        
+
             >>> tok = PythonTokenizer('for i in range(10): hello $i')
             >>> tok.consume_till(':')
             >>> tok.text[:tok.index]
@@ -514,7 +511,7 @@ class PythonTokenizer:
                 # @@ This should be fixed.
                 if t.value == "\n":
                     break
-        except:
+        except Exception:
             # raise ParseError, "Expected %s, found end of line." % repr(delim)
 
             # raising ParseError doesn't show the line number.
@@ -784,7 +781,7 @@ TEMPLATE_BUILTINS = dict(
 class ForLoop:
     """
     Wrapper for expression in for stament to support loop.xxx helpers.
-    
+
         >>> loop = ForLoop()
         >>> for x in loop.setup(['a', 'b', 'c']):
         ...     print(loop.index, loop.revindex, loop.parity, x)
@@ -829,7 +826,7 @@ class ForLoopContext:
     def setup(self, seq):
         try:
             self.length = len(seq)
-        except:
+        except Exception:
             self.length = 0
 
         self.index = 0
@@ -967,7 +964,7 @@ class Template(BaseTemplate):
             try:
                 lines = open(filename, encoding="utf-8").read().splitlines()
                 return lines[lineno]
-            except:
+            except Exception:
                 return None
 
         try:
@@ -1005,13 +1002,13 @@ class CompiledTemplate(Template):
 
 class Render:
     """The most preferred way of using templates.
-    
+
         render = web.template.render('templates')
         print render.foo()
-        
-    Optional parameter can be `base` can be used to pass output of 
+
+    Optional parameter can be `base` can be used to pass output of
     every template through the base template.
-    
+
         render = web.template.render('templates', base='layout')
     """
 
@@ -1123,13 +1120,6 @@ class GAE_Render(Render):
 
 
 render = Render
-# setup render for Google App Engine.
-try:
-    from google import appengine
-
-    render = Render = GAE_Render
-except ImportError:
-    pass
 
 
 def frender(path, **keywords):
@@ -1203,7 +1193,7 @@ ALLOWED_AST_NODES = [
     "Assign",
     "AugAssign",
     "alias",
-    #'Print', 'Repr',
+    # 'Print', 'Repr',
     "For",
     "While",
     "If",
@@ -1211,8 +1201,8 @@ ALLOWED_AST_NODES = [
     "comprehension",
     "NameConstant",
     "arg",
-    #'Raise', 'TryExcept', 'TryFinally', 'Assert', 'Import',
-    #'ImportFrom', 'Exec', 'Global',
+    # 'Raise', 'TryExcept', 'TryFinally', 'Assert', 'Import',
+    # 'ImportFrom', 'Exec', 'Global',
     "Expr",
     "Pass",
     "Break",
@@ -1286,12 +1276,12 @@ ALLOWED_AST_NODES = [
 class SafeVisitor(ast.NodeVisitor):
     """
     Make sure code is safe by walking through the AST.
-    
+
     Code considered unsafe if:
         * it has restricted AST nodes (only nodes defined in ALLOWED_AST_NODES are allowed)
         * it is trying to assign to attributes
-        * it is trying to access resricted attributes   
-        
+        * it is trying to access resricted attributes
+
     Adopted from http://www.zafar.se/bkz/uploads/safe.txt (public domain, Babar K. Zafar)
         * Using ast rather than compiler tree, for jython and Py3 support since Py2.6
         * Simplified with ast.NodeVisitor class
@@ -1362,27 +1352,27 @@ class SafeVisitor(ast.NodeVisitor):
 
 class TemplateResult(MutableMapping):
     """Dictionary like object for storing template output.
-    
+
     The result of a template execution is usally a string, but sometimes it
     contains attributes set using $var. This class provides a simple
     dictionary like interface for storing the output of the template and the
     attributes. The output is stored with a special key __body__. Convering
     the the TemplateResult to string or unicode returns the value of __body__.
-    
+
     When the template is in execution, the output is generated part by part
     and those parts are combined at the end. Parts are added to the
     TemplateResult by calling the `extend` method and the parts are combined
     seemlessly when __body__ is accessed.
-    
+
         >>> d = TemplateResult(__body__='hello, world', x='foo')
         >>> print(d)
         hello, world
         >>> d.x
         'foo'
         >>> d = TemplateResult()
-        >>> d.extend([u'hello', u'world'])
+        >>> d.extend(['hello', 'world'])
         >>> d
-        <TemplateResult: {'__body__': u'helloworld'}>
+        <TemplateResult: {'__body__': 'helloworld'}>
     """
 
     def __init__(self, *a, **kw):
@@ -1390,7 +1380,12 @@ class TemplateResult(MutableMapping):
         self._d.setdefault("__body__", u"")
 
         self.__dict__["_parts"] = []
-        self.__dict__["extend"] = self._parts.extend
+
+        def extend(args):
+            args = [str(arg) if isinstance(arg, TemplateResult) else arg for arg in args]
+            return self._parts.extend(args)
+
+        self.__dict__["extend"] = extend
 
         self._d.setdefault("__body__", None)
 
@@ -1401,7 +1396,7 @@ class TemplateResult(MutableMapping):
         """Prepare value of __body__ by joining parts.
         """
         if self._parts:
-            value = u"".join(self._parts)
+            value = "".join(self._parts)
             self._parts[:] = []
             body = self._d.get("__body__")
             if body:
@@ -1439,16 +1434,9 @@ class TemplateResult(MutableMapping):
         except KeyError as k:
             raise AttributeError(k)
 
-    def __unicode__(self):
-        self._prepare_body()
-        return self["__body__"]
-
     def __str__(self):
         self._prepare_body()
-        if PY2:
-            return self["__body__"].encode("utf-8")
-        else:
-            return self["__body__"]
+        return self["__body__"]
 
     def __repr__(self):
         self._prepare_body()
@@ -1468,7 +1456,7 @@ def test():
     r"""Doctest for testing template module.
 
     Define a utility function to run template test.
-    
+
         >>> class TestResult:
         ...     def __init__(self, t): self.t = t
         ...     def __getattr__(self, name): return getattr(self.t, name)
@@ -1478,9 +1466,9 @@ def test():
         ...     tmpl = Template(code, **keywords)
         ...     return lambda *a, **kw: TestResult(tmpl(*a, **kw))
         ...
-    
+
     Simple tests.
-    
+
         >>> t('1')()
         u'1\n'
         >>> t('$def with ()\n1')()
@@ -1491,9 +1479,9 @@ def test():
         u'1\n'
         >>> t('$def with (a=0)\n$a')(a=1)
         u'1\n'
-    
+
     Test complicated expressions.
-        
+
         >>> t('$def with (x)\n$x.upper()')('hello')
         u'HELLO\n'
         >>> t('$(2 * 3 + 4 * 5)')()
@@ -1504,16 +1492,16 @@ def test():
         u'keep going.\n'
         >>> t('$def with (a)\n$a.b[0]')(storage(b=[1]))
         u'1\n'
-        
+
     Test html escaping.
-    
+
         >>> t('$def with (x)\n$x', filename='a.html')('<html>')
         u'&lt;html&gt;\n'
         >>> t('$def with (x)\n$x', filename='a.txt')('<html>')
         u'<html>\n'
-                
+
     Test if, for and while.
-    
+
         >>> t('$if 1: 1')()
         u'1\n'
         >>> t('$if 1:\n    1')()
@@ -1536,19 +1524,19 @@ def test():
         u'1\n1\n1\n'
 
     The space after : must be ignored.
-    
+
         >>> t('$if True: foo')()
         u'foo\n'
-    
+
     Test loop.xxx.
 
         >>> t("$for i in range(5):$loop.index, $loop.parity")()
         u'1, odd\n2, even\n3, odd\n4, even\n5, odd\n'
         >>> t("$for i in range(2):\n    $for j in range(2):$loop.parent.parity $loop.parity")()
         u'odd odd\nodd even\neven odd\neven even\n'
-        
+
     Test assignment.
-    
+
         >>> t('$ a = 1\n$a')()
         u'1\n'
         >>> t('$ a = [1]\n$a[0]')()
@@ -1565,16 +1553,16 @@ def test():
         u'1\n'
 
     Test comments.
-    
+
         >>> t('$# 0')()
         u'\n'
         >>> t('hello$#comment1\nhello$#comment2')()
         u'hello\nhello\n'
         >>> t('$#comment0\nhello$#comment1\nhello$#comment2')()
         u'\nhello\nhello\n'
-        
+
     Test unicode.
-    
+
         >>> t('$def with (a)\n$a')(u'\u203d')
         u'\u203d\n'
         >>> t(u'$def with (a)\n$a $:a')(u'\u203d')
@@ -1587,52 +1575,52 @@ def test():
         u'x\n'
         >>> t('$def with (f)\n$:f("x")')(f)
         u'x\n'
-    
+
     Test dollar escaping.
-    
+
         >>> t("Stop, $$money isn't evaluated.")()
         u"Stop, $money isn't evaluated.\n"
         >>> t("Stop, \$money isn't evaluated.")()
         u"Stop, $money isn't evaluated.\n"
-        
+
     Test space sensitivity.
-    
+
         >>> t('$def with (x)\n$x')(1)
         u'1\n'
         >>> t('$def with(x ,y)\n$x')(1, 1)
         u'1\n'
         >>> t('$(1 + 2*3 + 4)')()
         u'11\n'
-        
+
     Make sure globals are working.
-            
+
         >>> t('$x')()
         Traceback (most recent call last):
             ...
         NameError: global name 'x' is not defined
         >>> t('$x', globals={'x': 1})()
         u'1\n'
-        
+
     Can't change globals.
-    
+
         >>> t('$ x = 2\n$x', globals={'x': 1})()
         u'2\n'
         >>> t('$ x = x + 1\n$x', globals={'x': 1})()
         Traceback (most recent call last):
             ...
         UnboundLocalError: local variable 'x' referenced before assignment
-    
+
     Make sure builtins are customizable.
-    
+
         >>> t('$min(1, 2)')()
         u'1\n'
         >>> t('$min(1, 2)', builtins={})()
         Traceback (most recent call last):
             ...
         NameError: global name 'min' is not defined
-        
+
     Test vars.
-    
+
         >>> x = t('$var x: 1')()
         >>> x.x
         u'1'
@@ -1677,7 +1665,6 @@ def test():
 
 
 if __name__ == "__main__":
-    import sys
 
     if "--compile" in sys.argv:
         compile_templates(sys.argv[2])

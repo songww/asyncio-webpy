@@ -12,7 +12,7 @@ from inspect import isawaitable, isclass, iscoroutine, iscoroutinefunction
 from io import BytesIO
 from urllib.parse import splitquery, unquote, urlencode
 
-from . import browser, httpserver, utils
+from . import browser, httpserver, types, utils
 from . import webapi as web
 from . import wsgi
 from .debugerror import debugerror
@@ -212,12 +212,14 @@ class application:
         headers = headers or {}
 
         has_content_length = False
+        has_content_type = False
         for k, v in headers.items():
             bytes_key = safebytes(k.lower().replace("-", "_"))
             if bytes_key == b"content_length":
                 has_content_length = True
                 scope["headers"].append((bytes_key, safebytes(v)))
             elif bytes_key == b"content_type":
+                has_content_type = True
                 scope["headers"].append((bytes_key, safebytes(v)))
             else:
                 scope["headers"].append((b"http_" + bytes_key, safebytes(v)))
@@ -236,6 +238,8 @@ class application:
             # if not env.get('CONTENT_TYPE', '').lower().startswith('multipart/') and 'CONTENT_LENGTH' not in env:
             if not has_content_length:
                 scope["headers"].append((b"content_length", len(q)))
+            if not has_content_type:
+                scope["headers"].append((b"content_type", "application/x-www-form-urlencoded"))
 
         logger.getChild("application.request").debug("scope(%s)", scope)
         response = web.storage()
@@ -320,6 +324,8 @@ class application:
             result = e.data
 
         await send({"type": "http.response.start", "status": web.ctx.status, "headers": web.ctx.headers})
+        if hasattr(result, "__body__"):
+            result = str(body)
         if is_iter(result):
             for chunck in result:
                 await send({"type": "http.response.body", "body": safebytes(chunck), "more_body": True})
@@ -353,10 +359,11 @@ class application:
 
         ctx.status = 200
 
-        ctx.headers = []
+        ctx.headers = types.Headers({})
         ctx.output = ""
         # ctx.environ = ctx.env = env
         ctx.scope = scope
+        scope["headers"] = types.ImmutableDict(scope["headers"])
 
         # ctx.host = env.get("HTTP_HOST")
         try:

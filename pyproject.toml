@@ -15,6 +15,7 @@ keywords = ["asyncio", "microframework"]
 [tool.poetry.dependencies]
 python = "^3.7"
 async-timeout = "^3.0.0"
+python-multipart = "^0.0.5"
 
 [tool.poetry.dev-dependencies]
 flake8 = "^3.5"

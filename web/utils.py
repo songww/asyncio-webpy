@@ -161,24 +161,12 @@ def storify(mapping, *requireds, **defaults):
         else:
             return s
 
-    def getvalue(x):
-        if hasattr(x, "file") and hasattr(x, "value"):
-            return x.value
-        elif hasattr(x, "value"):
-            return bytesify(x.value)
-        else:
-            return bytesify(x)
-
     stor = Storage()
     for key in requireds + tuple(mapping.keys()):
         value = mapping[key]
         if isinstance(value, list):
-            if isinstance(defaults.get(key), list):
-                value = [getvalue(x) for x in value]
-            else:
+            if not isinstance(defaults.get(key), list):
                 value = value[-1]
-        if not isinstance(defaults.get(key), dict):
-            value = getvalue(value)
         if isinstance(defaults.get(key), list) and not isinstance(value, list):
             value = [value]
 
@@ -388,10 +376,12 @@ def safebytes(obj, encoding="utf-8"):
 
     if isinstance(obj, str):
         return obj.encode(encoding)
+    if isinstance(obj, bytes):
+        return obj
     elif is_iter(obj):
         return map(safebytes, obj)
     else:
-        return bytes(obj)
+        return str(obj).encode(encoding)
 
 
 def timelimit(timeout):
@@ -1660,6 +1650,8 @@ class Context(object):
 
     def __contains__(self, key):
         return key in self._vars
+
+    __setitem__ = __setattr__
 
     def __getitem__(self, key):
         var = self._vars.get(key)

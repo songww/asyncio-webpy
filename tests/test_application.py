@@ -1,7 +1,4 @@
-import sys
-import threading
 import time
-import unittest
 from urllib.parse import urlencode
 
 import asynctest
@@ -231,7 +228,7 @@ class ApplicationTest(asynctest.TestCase):
             def POST(self, path):
                 if path == "/multipart":
                     i = web.input(file={})
-                    return i.file.value
+                    return list(i.file.keys())
                 else:
                     i = web.input()
                     return repr(dict(i)).replace("u", "")
@@ -242,18 +239,32 @@ class ApplicationTest(asynctest.TestCase):
             path = "/?" + urlencode({"name": name.encode("utf-8")})
             self.assertEqual((await app.request(path)).data.decode("utf-8"), repr(name))
 
-        await f(u"\u1234")
-        await f(u"foo")
+        await f("\u1234")
+        await f("foo")
 
         response = await app.request("/", method="POST", data=dict(name="foo"))
 
         self.assertEqual(response.data, b"{'name': 'foo'}")
 
-        data = '--boundary\r\nContent-Disposition: form-data; name="x"\r\n\r\nfoo\r\n--boundary\r\nContent-Disposition: form-data; name="file"; filename="a.txt"\r\nContent-Type: text/plain\r\n\r\na\r\n--boundary--\r\n'
+        data = "\r\n".join(
+            [
+                "--boundary",
+                'Content-Disposition: form-data; name="x"',
+                "",
+                "foo",
+                "--boundary",
+                'Content-Disposition: form-data; name="file"; filename="a.txt"',
+                "Content-Type: text/plain",
+                "",
+                "a",
+                "--boundary--",
+                "",
+            ]
+        )
         headers = {"Content-Type": "multipart/form-data; boundary=boundary"}
         response = await app.request("/multipart", method="POST", data=data, headers=headers)
 
-        self.assertEqual(response.data, b"a")
+        self.assertEqual(response.data, b"['a.txt']")
 
     async def testCustomNotFound(self):
         urls_a = ("/", "a")

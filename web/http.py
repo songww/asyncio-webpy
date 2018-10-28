@@ -6,13 +6,9 @@ HTTP Utilities
 __all__ = ["expires", "lastmodified", "prefixurl", "modified", "changequery", "url", "profiler"]
 
 import datetime
-import os
-import sys
-import threading
-import urllib
 from urllib.parse import urlencode as urllib_urlencode
 
-from . import net, utils
+from . import net, types, utils
 from . import webapi as web
 from .py3helpers import iteritems
 
@@ -107,23 +103,23 @@ def urlencode(query, doseq=0):
     return urllib_urlencode(query, doseq=doseq)
 
 
-def changequery(query=None, **kw):
+def changequery(query: types.QueryParams = None, **kw) -> types.QueryParams:
     """
     Imagine you're at `/foo?a=1&b=2`. Then `changequery(a=3)` will return
     `/foo?a=3&b=2` -- the same URL but with the arguments you requested
     changed.
     """
     if query is None:
-        query = web.query()
+        print(web.query())
+        query: types.QueryParams = types.MutableDict(dict(web.query()))
+        print(query)
     for k, v in iteritems(kw):
-        if v is None:
-            query.pop(k, None)
-        else:
+        query.pop(k, None)
+        if v is not None:
             query[k] = v
-    out = web.ctx.path
     if query:
-        out += "?" + urlencode(query, doseq=True)
-    return out
+        return "?".join([web.ctx.path, urlencode(query, doseq=True)])
+    return web.ctx.path
 
 
 def url(path=None, doseq=False, **kw):

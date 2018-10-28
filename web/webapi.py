@@ -62,12 +62,12 @@ __all__ = [
     "internalerror",
 ]
 
-import cgi
 import pprint
 import sys
 from http.cookies import CookieError, Morsel, SimpleCookie
-from io import BytesIO
-from urllib.parse import parse_qs, quote, unquote
+from urllib.parse import parse_qsl, quote, unquote
+
+import multipart
 
 from . import types
 from .py3helpers import urljoin
@@ -392,20 +392,10 @@ def header(hdr, value, unique=False):
     # protection against HTTP response splitting attack
     if "\n" in hdr or "\r" in hdr or "\n" in value or "\r" in value:
         raise ValueError("invalid characters in header")
-    if unique is True:
-        for h, v in ctx.headers:
-            if h.lower() == hdr.lower():
-                return
+    if unique is True and hdr in ctx.headers:
+        return
 
-    ctx.headers.append((hdr, value))
-
-
-def query(**default_kwargs):
-    params = types.QueryParams(parse_qs(ctx.query.strip("?")))
-    for key, value in default_kwargs.items():
-        if key not in params:
-            params[key] = value
-    return params
+    ctx.headers[hdr] = value
 
 
 def rawinput(method=None):
@@ -413,46 +403,18 @@ def rawinput(method=None):
     """
     method = method or "both"
 
-    def dictify(fs):
-        # hack to make web.input work with enctype='text/plain.
-        if fs.list is None:
-            fs.list = []
-
-        return dict([(k, fs[k]) for k in fs.keys()])
-
     e = ctx.scope.copy()
     a = b = {}
 
     if method.lower() in ["both", "post", "put"]:
         if e["method"] in ["POST", "PUT"]:
-            if e.get("content_type", "").lower().startswith("multipart/"):
-                # since wsgi.input is directly passed to cgi.FieldStorage,
-                # it can not be called multiple times. Saving the FieldStorage
-                # object in ctx to allow calling web.input multiple times.
-                a = ctx.get("_fieldstorage")
-                if not a:
-                    fp = e["wsgi.input"]
-                    a = cgi.FieldStorage(fp=fp, environ=e, keep_blank_values=1)
-                    ctx._fieldstorage = a
-            else:
-                d = data()
-                fp = BytesIO(d)
-                a = cgi.FieldStorage(fp=fp, environ=e, keep_blank_values=1)
-            a = dictify(a)
+            a = form()
 
     if method.lower() in ["both", "get"]:
         e["method"] = "GET"
-        b = dictify(cgi.FieldStorage(environ=e, keep_blank_values=1))
+        b = query()
 
-    def process_fieldstorage(fs):
-        if isinstance(fs, list):
-            return [process_fieldstorage(x) for x in fs]
-        elif fs.filename is None:
-            return fs.value
-        else:
-            return fs
-
-    return storage([(k, process_fieldstorage(v)) for k, v in dictadd(b, a).items()])
+    return storage([(k, v) for k, v in dictadd(a, b).items()])
 
 
 def input(*requireds, **defaults):
@@ -463,18 +425,49 @@ def input(*requireds, **defaults):
     _method = defaults.pop("_method", "both")
     out = rawinput(_method)
     try:
-        defaults.setdefault("_unicode", True)  # force unicode conversion by default.
+        defaults.setdefault("_bytes", False)
         return storify(out, *requireds, **defaults)
     except KeyError:
         raise badrequest()
+
+
+def query(**default_kwargs) -> types.QueryParams:
+    """Returns the query params sent with the request."""
+    params: types.QueryParams = types.ImmutableDict(parse_qsl(ctx.query.strip("?")))
+    for key, value in default_kwargs.items():
+        if key not in params:
+            params[key] = value
+    return params
 
 
 def data():
     """Returns the data sent with the request."""
     if "data" not in ctx:
         cl = intget(ctx.scope["headers"].get("content_length"), 0)
+        ctx.scope["input"].seek(0)
         ctx.data = ctx.scope["input"].read(cl)
     return ctx.data
+
+
+def form() -> types.Form:
+    """Returns the form data sent with the request."""
+
+    formdata: types.Form = types.MutableDict()
+
+    def on_field(field):
+        formdata[field.field_name] = field.value
+
+    def on_file(file):
+        files = formdata.setdefault("file", {})
+        files[safestr(file.file_name)] = file.file_object
+
+    if ctx.scope["headers"].get("content_type", "").startswith("multipart/"):
+        ctx.scope["input"].seek(0)
+        multipart.parse_form(ctx.scope["headers"], ctx.scope["input"], on_field, on_file)
+    elif ctx.scope["headers"].get("content_type", "") == "application/x-www-form-urlencoded":
+        formdata.update(parse_qsl(data()))
+
+    return types.ImmutableDict(formdata)
 
 
 def setcookie(name, value, expires="", domain=None, secure=False, httponly=False, path=None):

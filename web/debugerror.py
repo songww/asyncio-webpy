@@ -18,7 +18,6 @@ import traceback
 
 from . import webapi as web
 from .net import websafe
-from .py3helpers import urljoin
 from .template import Template
 from .utils import safestr, sendmail
 
@@ -179,7 +178,9 @@ $for frame in frames:
             $for line in frame.pre_context:
                 <li onclick="toggle('pre$frame.id', 'post$frame.id')">$line</li>
             </ol>
-            <ol start="$frame.lineno" class="context-line"><li onclick="toggle('pre$frame.id', 'post$frame.id')">$frame.context_line <span>...</span></li></ol>
+            <ol start="$frame.lineno" class="context-line">
+                <li onclick="toggle('pre$frame.id', 'post$frame.id')">$frame.context_line <span>...</span></li>
+            </ol>
         $if frame.post_context:
             <ol start='${frame.lineno + 1}' class="post-context" id="post$frame.id">
             $for line in frame.post_context:
@@ -360,6 +361,6 @@ if __name__ == "__main__":
 
     class index:
         def GET(self):
-            thisdoesnotexist
+            raise Exception("Some exception raised.")
 
     app.run()
